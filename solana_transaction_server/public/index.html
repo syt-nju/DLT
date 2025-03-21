@@ -1,0 +1,70 @@
+
+
+<!-- 引入 Solana Web3.js 和 bs58 -->
+<script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/bs58@4.0.1/dist/index.umd.min.js"></script>
+
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Solana DApp 转账</title>
+</head>
+<body>
+<h2>Solana DApp - 转账</h2>
+<label for="privateKey">私钥（Base58格式）：</label>
+<input type="text" id="privateKey" placeholder="输入你的私钥"><br>
+
+<label for="recipient">目标账户：</label>
+<input type="text" id="recipient" placeholder="输入目标地址"><br>
+
+<label for="amount">转账金额（Lamports）：</label>
+<input type="number" id="amount" placeholder="输入转账金额"><br>
+
+<button onclick="sendTransaction()">提交交易</button>
+
+<p id="status"></p>
+
+<script>
+    async function sendTransaction() {
+        const privateKeyBase58 = document.getElementById("privateKey").value;
+        const recipientAddress = document.getElementById("recipient").value;
+        const amount = parseInt(document.getElementById("amount").value);
+
+        if (!privateKeyBase58 || !recipientAddress || isNaN(amount) || amount <= 0) {
+            document.getElementById("status").innerText = "请输入有效信息！";
+            return;
+        }
+
+        document.getElementById("status").innerText = "正在提交交易请求...";
+
+        try {
+            // 使用 fetch 向后端发送请求
+            console.log(1111);
+            const response = await fetch("/sendTransaction", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    privateKeyBase58,  // 🔥 这里增加私钥
+                    recipient: recipientAddress,
+                    amount
+                }),
+            });
+
+            const result = await response.json();
+
+            if (response.ok) {
+                document.getElementById("status").innerText = `交易成功！哈希: ${result.signature}`;
+            } else {
+                document.getElementById("status").innerText = `交易失败: ${result.error}`;
+            }
+        } catch (error) {
+            console.error("请求失败:", error);
+            document.getElementById("status").innerText = "交易请求失败！";
+        }
+    }
+
+</script>
+</body>
+</html>
