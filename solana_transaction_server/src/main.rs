@@ -11,6 +11,7 @@ use solana_sdk::{
 };
 use std::str::FromStr;  // 移除 sync::Ar
 use webbrowser;
+use std::sync::{Arc, Mutex}; // 添加此行
 
 // 硬编码的私钥（测试用）
 const SECRET_KEY: [u8; 64] = [
@@ -31,18 +32,18 @@ async fn send_transaction(req: web::Json<TransactionRequest>) -> impl Responder 
     // 创建 Keypair
     let keypair = match Keypair::from_bytes(&SECRET_KEY) {
         Ok(k) => k,
-        Err(e) => return HttpResponse::InternalServerError().body(format!("密钥错误: {}", e)),
+        Err(e) => return HttpResponse::InternalServerError().json(serde_json::json!({ "error": format!("密钥错误: {}", e) })),
     };
 
     // 解析接收方地址
     let recipient = match Pubkey::from_str(&req.recipient) {
         Ok(p) => p,
-        Err(e) => return HttpResponse::BadRequest().body(format!("无效地址: {}", e)),
+        Err(e) => return HttpResponse::BadRequest().json(serde_json::json!({ "error": format!("无效地址: {}", e) })),
     };
 
     // 创建 RPC 客户端
     let rpc_url = "https://api.devnet.solana.com";
-    let client = RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed());
+    let client = Arc::new(Mutex::new(RpcClient::new_with_commitment(rpc_url.to_string(), CommitmentConfig::confirmed())));
 
     // 构建交易
     let instruction = system_instruction::transfer(
@@ -54,20 +55,24 @@ async fn send_transaction(req: web::Json<TransactionRequest>) -> impl Responder 
     let mut transaction = Transaction::new_with_payer(&[instruction], Some(&keypair.pubkey()));
 
     // 获取最新区块哈希
-    let recent_blockhash = match client.get_latest_blockhash() {
-        Ok(b) => b,
-        Err(e) => return HttpResponse::InternalServerError().body(format!("获取区块哈希失败: {}", e)),
+    let client_clone = Arc::clone(&client);
+    let recent_blockhash = match web::block(move || client_clone.lock().unwrap().get_latest_blockhash()).await {
+        Ok(Ok(b)) => b,
+        Ok(Err(e)) => return HttpResponse::InternalServerError().json(serde_json::json!({ "error": format!("获取区块哈希失败: {}", e) })),
+        Err(_) => return HttpResponse::InternalServerError().json(serde_json::json!({ "error": "获取区块哈希失败" })),
     };
 
     transaction.sign(&[&keypair], recent_blockhash);
 
     // 发送交易
-    match client.send_and_confirm_transaction(&transaction) {
-        Ok(signature) => HttpResponse::Ok().json(serde_json::json!({
+    let client_clone = Arc::clone(&client);
+    match web::block(move || client_clone.lock().unwrap().send_and_confirm_transaction(&transaction)).await {
+        Ok(Ok(signature)) => HttpResponse::Ok().json(serde_json::json!({
             "success": true,
             "signature": signature.to_string()
         })),
-        Err(e) => HttpResponse::InternalServerError().body(format!("交易失败: {}", e)),
+        Ok(Err(e)) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": format!("交易失败: {}", e) })),
+        Err(_) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": "交易失败" })),
     }
 }
 
