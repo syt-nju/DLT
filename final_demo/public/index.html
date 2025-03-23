@@ -1,0 +1,474 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DLT 转账系统</title>
+    <!-- 引入 Solana Web3.js 和 bs58 -->
+    <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bs58@4.0.1/dist/index.umd.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .section {
+            border: 1px solid #ddd;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 5px;
+        }
+        .hidden {
+            display: none;
+        }
+        input, button {
+            margin: 10px 0;
+            padding: 5px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            border-radius: 5px;
+        }
+        .success {
+            background-color: #dff0d8;
+            color: #3c763d;
+        }
+        .error {
+            background-color: #f2dede;
+            color: #a94442;
+        }
+        .status h4 {
+            margin-top: 0;
+            margin-bottom: 10px;
+        }
+        .status code {
+            background-color: #f8f8f8;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+            word-break: break-all;
+        }
+        .error h4 {
+            color: #a94442;
+        }
+        .success h4 {
+            color: #3c763d;
+        }
+        /* 添加交易详情按钮样式 */
+        .view-tx-btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            margin-top: 10px;
+            width: auto !important;
+        }
+
+        .view-tx-btn:hover {
+            background-color: #0056b3;
+        }
+
+        /* 交易记录样式 */
+        #transactionHistory {
+            margin-top: 20px;
+        }
+
+        #transactionHistory .transaction {
+            animation: fadeIn 0.5s;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body>
+    <h1>DLT 转账系统</h1>
+    
+    <!-- 导航菜单 -->
+    <div class="section">
+        <button onclick="showSection('register')">注册</button>
+        <button onclick="showSection('transfer')">转账</button>
+        <button onclick="showSection('manage')">管理</button>
+    </div>
+
+    <!-- 注册部分 -->
+    <div id="register" class="section">
+        <h2>注册</h2>
+        <input type="text" id="authCredential" placeholder="请输入授权凭证">
+        <button onclick="register()">注册</button>
+        <div id="registerStatus" class="status"></div>
+    </div>
+
+    <!-- 转账部分 -->
+    <div id="transfer" class="section hidden">
+        <h2>转账</h2>
+        <input type="text" id="privateKey" placeholder="请输入私钥">
+        <input type="number" id="amount" placeholder="请输入转账金额">
+        <input type="text" id="targetPubKey" placeholder="请输入目标地址公钥">
+        <button onclick="transfer()">确认转账</button>
+        <div id="transferStatus" class="status"></div>
+    </div>
+
+    <!-- 管理部分 -->
+    <div id="manage" class="section hidden">
+        <h2>管理</h2>
+        <div>
+            <h3>管理员密钥</h3>
+            <input type="text" id="adminKey" placeholder="请输入管理员密钥">
+            <button onclick="getAdminKey()">获取管理员密钥</button>
+        </div>
+        <div>
+            <h3>封禁功能</h3>
+            <input type="text" id="banId" placeholder="请输入要封禁的地址">
+            <button onclick="banAccount()">封禁账户</button>
+        </div>
+        <div>
+            <h3>解禁功能</h3>
+            <input type="text" id="unbanId" placeholder="请输入要解禁的地址">
+            <button onclick="unbanAccount()">解禁账户</button>
+        </div>
+        <div>
+            <h3>查看交易记录</h3>
+            <input type="text" id="pid" placeholder="请输入PID">
+            <button onclick="getTransactionHistory()">查询交易记录</button>
+        </div>
+        <div id="manageStatus" class="status"></div>
+        <div id="transactionHistory"></div>
+    </div>
+
+    <script>
+        // 显示/隐藏不同部分
+        function showSection(sectionId) {
+            const sections = ['register', 'transfer', 'manage'];
+            sections.forEach(id => {
+                document.getElementById(id).classList.add('hidden');
+            });
+            document.getElementById(sectionId).classList.remove('hidden');
+        }
+
+        // 注册功能，更新后提供公钥信息
+        async function register() {
+            const authCredential = document.getElementById('authCredential').value;
+            const status = document.getElementById('registerStatus');
+
+            if (!authCredential) {
+                status.className = 'status error';
+                status.innerText = '请输入授权凭证！';
+                return;
+            }
+
+            try {
+                const response = await fetch('http://localhost:3000/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ authCredential })
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    // 获取并显示用户的公钥，便于后续封禁测试
+                    const pubkey = await derivePublicKeyFromPrivate(result.privateKey);
+                    
+                    status.className = 'status success';
+                    status.innerHTML = `
+                        注册成功！<br>
+                        您的私钥是：<code style="user-select:all; background:#f0f0f0; padding:5px; display:block; word-break:break-all;">${result.privateKey}</code><br>
+                        您的地址是：<code style="user-select:all; background:#f0f0f0; padding:5px; display:block; word-break:break-all;">${pubkey}</code><br>
+                        <small>提示：点击可全选复制。封禁测试时请使用上面的地址。</small>
+                    `;
+                    
+                    // 自动复制私钥到转账界面的输入框
+                    document.getElementById('privateKey').value = result.privateKey;
+                    
+                    // 同时也复制到封禁输入框，方便测试
+                    document.getElementById('banId').value = pubkey;
+                } else {
+                    status.className = 'status error';
+                    status.innerText = `注册失败：${result.error}`;
+                }
+            } catch (error) {
+                status.className = 'status error';
+                status.innerText = '注册请求失败！';
+            }
+        }
+
+        // 转账功能
+        async function transfer() {
+            const privateKey = document.getElementById('privateKey').value;
+            const amount = document.getElementById('amount').value;
+            const targetPubKey = document.getElementById('targetPubKey').value;
+            const status = document.getElementById('transferStatus');
+
+            if (!privateKey || !amount || !targetPubKey) {
+                status.className = 'status error';
+                status.innerText = '请填写所有必要信息！';
+                return;
+            }
+
+            try {
+                // 显示正在处理的状态
+                status.className = 'status';
+                status.innerHTML = '<p>正在处理转账请求...</p>';
+                
+                const response = await fetch('http://localhost:3000/transfer', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        privateKey,
+                        amount: parseInt(amount),
+                        recipient: targetPubKey
+                    })
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    status.className = 'status success';
+                    status.innerHTML = `
+                        <h4>✅ 转账成功！</h4>
+                        <p>交易ID: ${result.pid}</p>
+                        <p>签名: ${result.signature}</p>
+                        <p>时间: ${new Date(result.timestamp * 1000).toLocaleString()}</p>
+                        <button class="view-tx-btn" onclick="viewTransaction('${result.pid}')">查看交易详情</button>
+                    `;
+                } else {
+                    status.className = 'status error';
+                    
+                    // 特别处理封禁状态的错误
+                    if (response.status === 403) {
+                        status.innerHTML = `
+                            <h4>⛔ 账户已被封禁</h4>
+                            <p>${result.error}</p>
+                            <p>您的账户已被管理员封禁，无法进行转账操作。</p>
+                            <p>请联系管理员解除封禁。</p>
+                        `;
+                    } else {
+                        status.innerText = `转账失败：${result.error}`;
+                    }
+                }
+            } catch (error) {
+                status.className = 'status error';
+                status.innerText = '转账请求失败！';
+            }
+        }
+        
+        // 快速查看特定交易详情的功能
+        function viewTransaction(pid) {
+            // 切换到管理界面并填充PID
+            showSection('manage');
+            document.getElementById('pid').value = pid;
+            // 自动触发查询
+            getTransactionHistory();
+        }
+
+        // 获取管理员密钥
+        async function getAdminKey() {
+            const status = document.getElementById('manageStatus');
+            
+            try {
+                const response = await fetch('http://localhost:3000/get_admin_key');
+                const result = await response.json();
+                
+                if (response.ok) {
+                    document.getElementById('adminKey').value = result.adminKey;
+                    status.className = 'status success';
+                    status.innerHTML = '已获取管理员密钥！';
+                } else {
+                    status.className = 'status error';
+                    status.innerText = `获取失败：${result.error}`;
+                }
+            } catch (error) {
+                status.className = 'status error';
+                status.innerText = '请求失败！';
+            }
+        }
+
+        // 封禁账户
+        async function banAccount() {
+            const adminKey = document.getElementById('adminKey').value;
+            const targetAddress = document.getElementById('banId').value;
+            await handleAccountStatus(adminKey, targetAddress, 'ban');
+        }
+
+        // 解禁账户
+        async function unbanAccount() {
+            const adminKey = document.getElementById('adminKey').value;
+            const targetAddress = document.getElementById('unbanId').value;
+            await handleAccountStatus(adminKey, targetAddress, 'unban');
+        }
+
+        // 处理账户状态变更
+        async function handleAccountStatus(adminKey, targetAddress, action) {
+            const status = document.getElementById('manageStatus');
+
+            if (!adminKey) {
+                status.className = 'status error';
+                status.innerText = '请输入管理员密钥！';
+                return;
+            }
+
+            if (!targetAddress) {
+                status.className = 'status error';
+                status.innerText = '请输入目标地址！';
+                return;
+            }
+
+            try {
+                // 显示处理中状态
+                status.className = 'status';
+                status.innerHTML = '<p>正在处理请求...</p>';
+                
+                const response = await fetch(`http://localhost:3000/${action}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ adminKey, targetAddress })
+                });
+
+                const result = await response.json();
+                if (response.ok) {
+                    status.className = 'status success';
+                    
+                    // 根据操作显示更详细的成功信息
+                    if (action === 'ban') {
+                        status.innerHTML = `
+                            <h4>✅ 封禁成功</h4>
+                            <p>已成功封禁地址：<code>${targetAddress}</code></p>
+                            <p>该账户现在无法进行转账操作。</p>
+                        `;
+                        
+                        // 清空输入框
+                        document.getElementById('banId').value = '';
+                    } else {
+                        status.innerHTML = `
+                            <h4>✅ 解禁成功</h4>
+                            <p>已成功解禁地址：<code>${targetAddress}</code></p>
+                            <p>该账户现在可以正常进行转账操作。</p>
+                        `;
+                        
+                        // 清空输入框
+                        document.getElementById('unbanId').value = '';
+                    }
+                } else {
+                    status.className = 'status error';
+                    status.innerHTML = `
+                        <h4>❌ 操作失败</h4>
+                        <p>${result.error}</p>
+                    `;
+                }
+            } catch (error) {
+                status.className = 'status error';
+                status.innerText = '请求失败，请检查网络连接！';
+            }
+        }
+
+        // 查看交易记录
+        async function getTransactionHistory() {
+            const pid = document.getElementById('pid').value;
+            const status = document.getElementById('manageStatus');
+            const historyDiv = document.getElementById('transactionHistory');
+
+            if (!pid) {
+                status.className = 'status error';
+                status.innerText = '请输入PID！';
+                return;
+            }
+
+            try {
+                // 显示加载状态
+                status.className = 'status';
+                status.innerHTML = '<p>正在查询交易记录...</p>';
+                historyDiv.innerHTML = '<p>加载中...</p>';
+                
+                const response = await fetch(`http://localhost:3000/transaction/${pid}`);
+                const result = await response.json();
+                
+                if (response.ok) {
+                    status.className = 'status success';
+                    status.innerText = '查询成功！';
+                    
+                    // 使用美化的方式显示交易记录
+                    historyDiv.innerHTML = `
+                        <div class="transaction" style="background-color:#f9f9f9; border:1px solid #ddd; padding:15px; border-radius:5px;">
+                            <h4 style="margin-top:0; color:#333; border-bottom:1px solid #eee; padding-bottom:10px;">
+                                交易详情 #${result.pid}
+                            </h4>
+                            <div style="display:grid; grid-template-columns:120px auto; gap:8px;">
+                                <strong>交易ID：</strong><code style="word-break:break-all;">${result.pid}</code>
+                                <strong>发送方：</strong><code>${result.sender}</code>
+                                <strong>接收方：</strong><code>${result.recipient}</code>
+                                <strong>金额：</strong><span>${result.amount}</span>
+                                <strong>状态：</strong><span style="color:green;">${result.status || '已确认'}</span>
+                                <strong>区块：</strong><span>${result.block_height || 'N/A'}</span>
+                                <strong>确认数：</strong><span>${result.confirmation_count || 'N/A'}</span>
+                                <strong>时间：</strong><span>${new Date(result.timestamp * 1000).toLocaleString()}</span>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    status.className = 'status error';
+                    status.innerText = `查询失败：${result.error || '交易记录不存在'}`;
+                    historyDiv.innerHTML = `
+                        <div class="error" style="background-color:#f8d7da; color:#721c24; padding:10px; border-radius:5px;">
+                            <h4>未找到交易</h4>
+                            <p>无法找到ID为 <code>${result.pid || pid}</code> 的交易记录。</p>
+                            <p>请检查交易ID是否正确。</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                status.className = 'status error';
+                status.innerText = '查询请求失败！';
+                historyDiv.innerHTML = `
+                    <div class="error" style="background-color:#f8d7da; color:#721c24; padding:10px; border-radius:5px;">
+                        <h4>请求错误</h4>
+                        <p>连接服务器失败，请检查网络连接。</p>
+                        <p>错误详情：${error.message}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // 从私钥派生公钥的函数 (模拟)
+        async function derivePublicKeyFromPrivate(privateKeyHex) {
+            try {
+                // 在真实场景中，这里应该调用后端获取公钥
+                // 为了简化测试，我们发送一个额外请求来获取公钥
+                const response = await fetch('http://localhost:3000/get_pubkey', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ privateKey: privateKeyHex })
+                });
+                
+                if (!response.ok) {
+                    // 如果获取失败，返回一个模拟的公钥
+                    return privateKeyHex.substring(0, 16) + "...";
+                }
+                
+                const result = await response.json();
+                return result.pubkey;
+            } catch (error) {
+                // 出错时使用私钥前缀作为公钥
+                return privateKeyHex.substring(0, 16) + "...";
+            }
+        }
+    </script>
+</body>
+</html>
